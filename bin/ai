@@ -1,0 +1,215 @@
+#!/bin/bash
+
+# Configuration
+# Resolve real path of this script using Python (robust to symlinks)
+REAL_SCRIPT_PATH=$(python3 -c "import os, sys; print(os.path.realpath(sys.argv[1]))" "${BASH_SOURCE[0]}")
+CENTRAL_REPO="$(cd "$(dirname "$REAL_SCRIPT_PATH")/.." && pwd)"
+PROJECT_ROOT="$PWD"
+PROJECT_SKILLS=".agents/skills"
+MANIFEST_FILE=".agentic.json"
+
+# Helper: JSON manipulation using Python
+update_manifest() {
+    local action=$1
+    local skill=$2
+    python3 -c "
+import json
+import os
+import sys
+
+manifest_file = '$MANIFEST_FILE'
+action = '$action'
+skill = '$skill'
+
+if os.path.exists(manifest_file):
+    with open(manifest_file, 'r') as f:
+        try:
+            data = json.load(f)
+        except json.JSONDecodeError:
+            data = {'skills': []}
+else:
+    data = {'skills': []}
+
+if 'skills' not in data:
+    data['skills'] = []
+
+if action == 'add':
+    if skill not in data['skills']:
+        data['skills'].append(skill)
+elif action == 'remove':
+    if skill in data['skills']:
+        data['skills'].remove(skill)
+
+with open(manifest_file, 'w') as f:
+    json.dump(data, f, indent=2)
+"
+}
+
+read_manifest() {
+    if [ -f "$MANIFEST_FILE" ]; then
+        python3 -c "import json; print(' '.join(json.load(open('$MANIFEST_FILE')).get('skills', [])))" 2>/dev/null
+    else
+        echo ""
+    fi
+}
+
+# Command: init
+cmd_init() {
+    echo "🤖 Initializing AI workspace..."
+    mkdir -p "$PROJECT_SKILLS" .agents/agents .agents/commands .claude
+    
+    # Create manifest if not exists
+    if [ ! -f "$MANIFEST_FILE" ]; then
+        echo '{"skills": []}' > "$MANIFEST_FILE"
+    fi
+
+    # Cross-Compatibility Symlinks
+    ln -sf .agents .agent
+    # Create AGENTS.md pointer if it doesn't exist
+    if [ ! -f .agents/AGENTS.md ]; then
+        touch .agents/AGENTS.md
+    fi
+    ln -sf .agents/AGENTS.md CLAUDE.md
+    
+    # Claude Code Overrides
+    echo '{"skillsPath": ".agents/skills", "agentsPath": ".agents/agents"}' > .claude/settings.json
+    
+    echo "✨ Project initialized. Compatible with Claude, Codex, and Antigravity."
+}
+
+# Command: install
+cmd_install() {
+    echo "📦 Installing skills from $MANIFEST_FILE..."
+    if [ ! -f "$MANIFEST_FILE" ]; then
+        echo "❌ No manifest file found. Run 'ai init' first."
+        exit 1
+    fi
+
+    # Ensure directories exist
+    mkdir -p "$PROJECT_SKILLS"
+
+    skills=$(read_manifest)
+    for skill in $skills; do
+        # Locate skill
+        local found=0
+        
+        # 1. Personal
+        if [ -e "$CENTRAL_REPO/skills/$skill" ]; then
+            ln -sf "$CENTRAL_REPO/skills/$skill" "$PROJECT_SKILLS/"
+            echo "✅ Linked personal skill: $skill"
+            found=1
+        else
+            # 2. Vendor
+            VENDOR_PATH=$(find "$CENTRAL_REPO/vendor" -maxdepth 3 -name "$skill" -o -name "$skill.md" 2>/dev/null | head -n 1)
+            if [ -n "$VENDOR_PATH" ]; then
+                ln -sf "$VENDOR_PATH" "$PROJECT_SKILLS/"
+                echo "✅ Linked community skill: $skill"
+                found=1
+            fi
+        fi
+
+        if [ $found -eq 0 ]; then
+            echo "⚠️  Warning: Skill '$skill' not found in central repo."
+        fi
+    done
+}
+
+# Command: add
+cmd_add() {
+    if [ -z "$1" ]; then
+        echo "Usage: ai add <skill>"
+        exit 1
+    fi
+
+    for skill in "$@"; do
+        # Check if already installed
+        if [ -e "$PROJECT_SKILLS/$skill" ]; then
+            echo "ℹ️  Skill '$skill' is already linked."
+            update_manifest "add" "$skill"
+            continue
+        fi
+
+        # 1. Search Personal
+        if [ -e "$CENTRAL_REPO/skills/$skill" ]; then
+            mkdir -p "$PROJECT_SKILLS"
+            ln -sf "$CENTRAL_REPO/skills/$skill" "$PROJECT_SKILLS/"
+            update_manifest "add" "$skill"
+            echo "🧑‍💻 Added personal skill: $skill"
+        
+        # 2. Search Vendor
+        else
+            VENDOR_PATH=$(find "$CENTRAL_REPO/vendor" -maxdepth 3 -name "$skill" -o -name "$skill.md" 2>/dev/null | head -n 1)
+            if [ -n "$VENDOR_PATH" ]; then
+                mkdir -p "$PROJECT_SKILLS"
+                ln -sf "$VENDOR_PATH" "$PROJECT_SKILLS/"
+                update_manifest "add" "$skill"
+                echo "🌍 Added community skill: $skill"
+            else
+                echo "❌ Skill '$skill' not found in personal hub or vendor repos!"
+            fi
+        fi
+    done
+}
+
+# Command: remove
+cmd_remove() {
+    if [ -z "$1" ]; then
+        echo "Usage: ai remove <skill>"
+        exit 1
+    fi
+
+    for skill in "$@"; do
+        if [ -e "$PROJECT_SKILLS/$skill" ] || [ -L "$PROJECT_SKILLS/$skill" ]; then
+            rm -rf "$PROJECT_SKILLS/$skill"
+            update_manifest "remove" "$skill"
+            echo "🗑️  Removed skill: $skill"
+        else
+            echo "⚠️  Skill '$skill' not currently active."
+        fi
+    done
+}
+
+# Command: list
+cmd_list() {
+    echo "📦 Available Personal Skills:"
+    if [ -d "$CENTRAL_REPO/skills" ]; then
+        ls -1 "$CENTRAL_REPO/skills/" 2>/dev/null || echo "(none)"
+    else
+        echo "(none)"
+    fi
+    echo "---"
+    echo "🌍 Available Community Skills:"
+    if [ -d "$CENTRAL_REPO/vendor" ]; then
+        find "$CENTRAL_REPO/vendor" -maxdepth 3 -type d -path "*/skills/*" -exec basename {} \; 2>/dev/null | sort | uniq
+    else
+        echo "(none)"
+    fi
+    echo "---"
+    echo "🔗 Active in Project (Manifest):"
+    read_manifest
+}
+
+# Main Dispatch
+case "$1" in
+    init)
+        cmd_init
+        ;;
+    install)
+        cmd_install
+        ;;
+    add)
+        shift
+        cmd_add "$@"
+        ;;
+    remove)
+        shift
+        cmd_remove "$@"
+        ;;
+    list)
+        cmd_list
+        ;;
+    *)
+        echo "Usage: ai [init | install | add <skill> | remove <skill> | list]"
+        exit 1
+        ;;
+esac
