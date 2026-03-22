@@ -25,7 +25,7 @@ Just like personal dotfiles for your shell, **Agentic Dotfiles** provides a "Uni
 │   ├── handoff/
 │   └── ...
 ├── vendor/                # Community skills (Git Submodules)
-│   └── awesome-skills/
+│   └── (optional downloads)
 ├── tests/                 # Pytest suite
 └── .venv/                 # Local test environment
 ```
@@ -78,6 +78,32 @@ Clean up the AI's context when a task is finished.
 ```bash
 ai remove rust-analyzer
 ```
+
+---
+
+## 🧭 Recommended Pattern (2026)
+
+Use a two-layer model:
+
+- **`agentic-dotfiles` = personal layer**
+  - Keep reusable generic skills and private preferences here.
+  - This is your local AI toolbox.
+
+- **`project B` = team layer**
+  - Commit only project-critical instructions (for example `AGENTS.md`).
+  - Do not commit generated local runtime artifacts: `.agent/`, `.agents/`, `CLAUDE.md`, `.claude/`.
+  - Keep `.agentic.json` local by default; optionally commit `.agentic.json.example` for opt-in onboarding.
+
+### Practical Workflow in Project B
+
+```bash
+ai init
+ai add <skills>
+# later, on fresh clones (if .agentic.json is present):
+ai install
+```
+
+Copy skills into `project B` only when they are truly project-specific and must be identical for all contributors. Keep generic skills in `agentic-dotfiles`.
 
 ---
 

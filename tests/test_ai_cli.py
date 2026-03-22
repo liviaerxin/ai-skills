@@ -77,6 +77,57 @@ def test_add_vendor_skill(ai_cmd, repo_root, tmp_path):
     manifest = json.loads((project_dir / ".agentic.json").read_text())
     assert "community-skill" in manifest["skills"]
 
+def test_add_personal_skill_with_quote(ai_cmd, repo_root, tmp_path):
+    """Verify skill names with quotes don't break manifest updates."""
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+    run_cmd([ai_cmd, "init"], project_dir)
+
+    skill_name = "bad'skill"
+    result = run_cmd([ai_cmd, "add", skill_name], project_dir)
+    assert result.returncode == 0
+
+    skill_link = project_dir / ".agents" / "skills" / skill_name
+    assert skill_link.is_symlink()
+    assert skill_link.resolve() == (repo_root / "skills" / skill_name)
+
+    manifest = json.loads((project_dir / ".agentic.json").read_text())
+    assert skill_name in manifest["skills"]
+
+def test_add_vendor_md_skill_links_to_requested_name(ai_cmd, repo_root, tmp_path):
+    """Verify vendor foo.md installs as .agents/skills/foo (not foo.md)."""
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+    run_cmd([ai_cmd, "init"], project_dir)
+
+    result = run_cmd([ai_cmd, "add", "md-skill"], project_dir)
+    assert result.returncode == 0
+    assert "Added community skill" in result.stdout
+
+    skill_link = project_dir / ".agents" / "skills" / "md-skill"
+    assert skill_link.is_symlink()
+    assert skill_link.resolve() == (repo_root / "vendor" / "community-repo" / "skills" / "md-skill.md")
+
+def test_add_missing_skill_exits_nonzero(ai_cmd, tmp_path):
+    """Verify ai add returns non-zero when a requested skill is missing."""
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+    run_cmd([ai_cmd, "init"], project_dir)
+
+    result = run_cmd([ai_cmd, "add", "does-not-exist"], project_dir)
+    assert result.returncode != 0
+    assert "not found" in result.stdout
+
+def test_init_fails_if_agent_exists_as_dir(ai_cmd, tmp_path):
+    """Verify init refuses to nest a symlink when .agent already exists as a dir."""
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+    (project_dir / ".agent").mkdir()
+
+    result = run_cmd([ai_cmd, "init"], project_dir)
+    assert result.returncode != 0
+    assert ".agent already exists as a directory" in result.stdout
+
 def test_remove_skill(ai_cmd, repo_root, tmp_path):
     """Verify removing a skill cleans up symlinks and manifest."""
     project_dir = tmp_path / "project"
@@ -102,7 +153,7 @@ def test_install_from_manifest(ai_cmd, repo_root, tmp_path):
     project_dir.mkdir()
     
     # Simulate a cloned repo with just a manifest
-    (project_dir / ".agentic.json").write_text(json.dumps({"skills": ["personal-skill", "community-skill"]}))
+    (project_dir / ".agentic.json").write_text(json.dumps({"skills": ["personal-skill", "community-skill", "md-skill"]}))
     
     result = run_cmd([ai_cmd, "install"], project_dir)
     assert result.returncode == 0
@@ -110,6 +161,7 @@ def test_install_from_manifest(ai_cmd, repo_root, tmp_path):
     # Check symlinks created
     assert (project_dir / ".agents" / "skills" / "personal-skill").is_symlink()
     assert (project_dir / ".agents" / "skills" / "community-skill").is_symlink()
+    assert (project_dir / ".agents" / "skills" / "md-skill").is_symlink()
 
 def test_list(ai_cmd, repo_root, tmp_path):
     """Verify list command output."""

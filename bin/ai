@@ -12,14 +12,14 @@ MANIFEST_FILE=".agentic.json"
 update_manifest() {
     local action=$1
     local skill=$2
-    python3 -c "
+    python3 - "$MANIFEST_FILE" "$action" "$skill" <<'PY'
 import json
 import os
 import sys
 
-manifest_file = '$MANIFEST_FILE'
-action = '$action'
-skill = '$skill'
+manifest_file = sys.argv[1]
+action = sys.argv[2]
+skill = sys.argv[3]
 
 if os.path.exists(manifest_file):
     with open(manifest_file, 'r') as f:
@@ -42,12 +42,20 @@ elif action == 'remove':
 
 with open(manifest_file, 'w') as f:
     json.dump(data, f, indent=2)
-"
+PY
 }
 
 read_manifest() {
     if [ -f "$MANIFEST_FILE" ]; then
-        python3 -c "import json; print(' '.join(json.load(open('$MANIFEST_FILE')).get('skills', [])))" 2>/dev/null
+        python3 - "$MANIFEST_FILE" <<'PY' 2>/dev/null
+import json
+import sys
+
+manifest_file = sys.argv[1]
+with open(manifest_file, "r") as f:
+    data = json.load(f)
+print(" ".join(data.get("skills", [])))
+PY
     else
         echo ""
     fi
@@ -64,10 +72,18 @@ cmd_init() {
     fi
 
     # Cross-Compatibility Symlinks
+    if [ -d .agent ] && [ ! -L .agent ]; then
+        echo "❌ .agent already exists as a directory; refusing to nest a symlink inside it."
+        exit 1
+    fi
     ln -sf .agents .agent
     # Create AGENTS.md pointer if it doesn't exist
     if [ ! -f .agents/AGENTS.md ]; then
         touch .agents/AGENTS.md
+    fi
+    if [ -d CLAUDE.md ] && [ ! -L CLAUDE.md ]; then
+        echo "❌ CLAUDE.md exists as a directory; refusing to overwrite."
+        exit 1
     fi
     ln -sf .agents/AGENTS.md CLAUDE.md
     
@@ -95,14 +111,14 @@ cmd_install() {
         
         # 1. Personal
         if [ -e "$CENTRAL_REPO/skills/$skill" ]; then
-            ln -sf "$CENTRAL_REPO/skills/$skill" "$PROJECT_SKILLS/"
+            ln -sf "$CENTRAL_REPO/skills/$skill" "$PROJECT_SKILLS/$skill"
             echo "✅ Linked personal skill: $skill"
             found=1
         else
             # 2. Vendor
             VENDOR_PATH=$(find "$CENTRAL_REPO/vendor" -maxdepth 3 -name "$skill" -o -name "$skill.md" 2>/dev/null | head -n 1)
             if [ -n "$VENDOR_PATH" ]; then
-                ln -sf "$VENDOR_PATH" "$PROJECT_SKILLS/"
+                ln -sf "$VENDOR_PATH" "$PROJECT_SKILLS/$skill"
                 echo "✅ Linked community skill: $skill"
                 found=1
             fi
@@ -121,6 +137,8 @@ cmd_add() {
         exit 1
     fi
 
+    local any_failed=0
+
     for skill in "$@"; do
         # Check if already installed
         if [ -e "$PROJECT_SKILLS/$skill" ]; then
@@ -132,7 +150,7 @@ cmd_add() {
         # 1. Search Personal
         if [ -e "$CENTRAL_REPO/skills/$skill" ]; then
             mkdir -p "$PROJECT_SKILLS"
-            ln -sf "$CENTRAL_REPO/skills/$skill" "$PROJECT_SKILLS/"
+            ln -sf "$CENTRAL_REPO/skills/$skill" "$PROJECT_SKILLS/$skill"
             update_manifest "add" "$skill"
             echo "🧑‍💻 Added personal skill: $skill"
         
@@ -141,14 +159,19 @@ cmd_add() {
             VENDOR_PATH=$(find "$CENTRAL_REPO/vendor" -maxdepth 3 -name "$skill" -o -name "$skill.md" 2>/dev/null | head -n 1)
             if [ -n "$VENDOR_PATH" ]; then
                 mkdir -p "$PROJECT_SKILLS"
-                ln -sf "$VENDOR_PATH" "$PROJECT_SKILLS/"
+                ln -sf "$VENDOR_PATH" "$PROJECT_SKILLS/$skill"
                 update_manifest "add" "$skill"
                 echo "🌍 Added community skill: $skill"
             else
                 echo "❌ Skill '$skill' not found in personal hub or vendor repos!"
+                any_failed=1
             fi
         fi
     done
+
+    if [ "$any_failed" -ne 0 ]; then
+        exit 1
+    fi
 }
 
 # Command: remove

@@ -27,11 +27,18 @@ def repo_root(tmp_path):
     # Create dummy skills
     (skills_dir / "personal-skill").mkdir()
     (skills_dir / "personal-skill" / "SKILL.md").write_text("# Personal Skill")
+
+    # Skill name that would have broken the old python3 -c string interpolation
+    (skills_dir / "bad'skill").mkdir()
+    (skills_dir / "bad'skill" / "SKILL.md").write_text("# Personal Skill With Quote")
     
     (vendor_dir / "community-repo").mkdir()
     (vendor_dir / "community-repo" / "skills").mkdir()
     (vendor_dir / "community-repo" / "skills" / "community-skill").mkdir()
     (vendor_dir / "community-repo" / "skills" / "community-skill" / "SKILL.md").write_text("# Community Skill")
+
+    # Vendor skill provided as a single markdown file (skill.md)
+    (vendor_dir / "community-repo" / "skills" / "md-skill.md").write_text("# Vendor Markdown Skill")
     
     return tmp_path
 
